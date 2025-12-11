@@ -11,9 +11,4 @@ public class Utils {
         if (age < 0) return false;
         else return true;  // Bug: Allows age > 120
     }
-
-    // Unused method (code smell)
-    public static void printMessage(String msg) {
-        System.out.println(msg);
-    }
 }

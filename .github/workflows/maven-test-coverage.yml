@@ -1,0 +1,98 @@
+name: Maven Build, Test, and Coverage
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: maven
+    
+    - name: Build with Maven
+      run: mvn clean compile
+    
+    - name: Run unit tests
+      run: mvn test
+    
+    - name: Generate JaCoCo coverage report
+      run: mvn jacoco:report
+    
+    - name: Run PIT mutation testing
+      run: mvn org.pitest:pitest-maven:mutationCoverage
+    
+    - name: Upload JaCoCo coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./target/site/jacoco/jacoco.xml
+        flags: jacoco
+        name: jacoco-coverage
+        fail_ci_if_error: false
+    
+    - name: Archive JaCoCo report
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: jacoco-report
+        path: target/site/jacoco/
+        retention-days: 30
+    
+    - name: Archive PIT report
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: pit-report
+        path: target/pit-reports/
+        retention-days: 30
+    
+    - name: Publish test results
+      if: always()
+      uses: EnricoMi/publish-unit-test-result-action@v2
+      with:
+        files: target/surefire-reports/**/*.xml
+        check_name: Test Results
+    
+    - name: Comment coverage summary on PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          
+          // Try to read JaCoCo CSV report
+          let jacocoComment = '';
+          try {
+            const jacocoData = fs.readFileSync('target/site/jacoco/jacoco.csv', 'utf8');
+            const lines = jacocoData.split('\n').filter(line => line && !line.startsWith('GROUP'));
+            if (lines.length > 0) {
+              jacocoComment = '## JaCoCo Coverage Report\n```\n' + jacocoData + '```\n';
+            }
+          } catch (e) {
+            console.log('JaCoCo report not found');
+          }
+          
+          // Create comment
+          const comment = jacocoComment + 
+            '\n✅ Build and tests completed successfully!\n' +
+            'Check the artifacts for detailed JaCoCo and PIT reports.';
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
